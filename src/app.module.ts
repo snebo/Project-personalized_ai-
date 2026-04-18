@@ -8,6 +8,10 @@ import { validate } from './config/env.validations';
 import { UserModule } from './users/user.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
+import { ConversationsModule } from './conversations/conversations.module';
+import { PeopleModule } from './people/people.module';
+import { MemoriesModule } from './memories/memories.module';
+import { EmbeddingsModule } from './embeddings/embeddings.module';
 
 @Module({
   imports: [
@@ -40,6 +44,10 @@ import { AuthModule } from './auth/auth.module';
     AuthModule,
     UserModule,
     HealthModule,
+    ConversationsModule,
+    PeopleModule,
+    MemoriesModule,
+    EmbeddingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

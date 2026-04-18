@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.1.0",
     "@langchain/core": "^1.1.40",
     "@langchain/langgraph": "^1.2.9",
     "@nestjs/common": "^11.0.1",
