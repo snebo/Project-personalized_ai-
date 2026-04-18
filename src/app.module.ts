@@ -12,6 +12,10 @@ import { ConversationsModule } from './conversations/conversations.module';
 import { PeopleModule } from './people/people.module';
 import { MemoriesModule } from './memories/memories.module';
 import { EmbeddingsModule } from './embeddings/embeddings.module';
+import { DocumentsModule } from './documents/documents.module';
+import { RetrievalModule } from './retrieval/retrieval.module';
+import { LlmModule } from './llm/llm.module';
+import { PipelineModule } from './pipeline/pipeline.module';
 
 @Module({
   imports: [
@@ -48,6 +52,10 @@ import { EmbeddingsModule } from './embeddings/embeddings.module';
     PeopleModule,
     MemoriesModule,
     EmbeddingsModule,
+    DocumentsModule,
+    RetrievalModule,
+    LlmModule,
+    PipelineModule,
   ],
   controllers: [AppController],
   providers: [AppService],
