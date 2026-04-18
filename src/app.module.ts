@@ -7,6 +7,7 @@ import { SupabaseModule } from './superbase/superbase.module';
 import { validate } from './config/env.validations';
 import { UserModule } from './users/user.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { HealthModule } from './health/health.module';
 
     SupabaseModule,
 
+    AuthModule,
     UserModule,
     HealthModule,
   ],

@@ -10,4 +10,7 @@ export class User {
 
   @Column()
   name!: string;
+
+  @Column({ select: false }) // Hide password from select queries by default for security
+  password!: string;
 }

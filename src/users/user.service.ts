@@ -1,4 +1,3 @@
-// src/users/users.service.ts
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,6 +13,26 @@ export class UsersService {
     @Inject(SUPABASE_ADMIN_CLIENT)
     private readonly supabase: SupabaseClient,
   ) {}
+
+  async create(user_data: Partial<User>): Promise<User> {
+    const user = this.usersRepository.create(user_data);
+    return this.usersRepository.save(user);
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { email } });
+  }
+
+  async findByEmailWithPassword(email: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { email },
+      select: ['id', 'email', 'name', 'password'],
+    });
+  }
+
+  async findById(id: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { id } });
+  }
 
   findAll() {
     return this.usersRepository.find();
