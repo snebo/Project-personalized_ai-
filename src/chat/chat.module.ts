@@ -13,5 +13,6 @@ import { PipelineModule } from '../pipeline/pipeline.module';
     PipelineModule,
   ],
   providers: [ChatGateway],
+  exports: [ChatGateway],
 })
 export class ChatModule {}

@@ -12,7 +12,7 @@
     "paths": {
       "src/*": ["./src/*"]
     },
-    "types": ["node"],
+    "types": ["node", "multer"],
     "skipLibCheck": true,
     "strict": true,
     "strictNullChecks": true,

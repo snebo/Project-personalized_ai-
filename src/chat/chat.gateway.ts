@@ -44,6 +44,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
+  private connectedSockets: Map<string, Socket[]> = new Map();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -62,6 +63,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       const payload = await this.jwtService.verifyAsync(token);
       client.data.userId = payload.sub;
+      
+      const userSockets = this.connectedSockets.get(payload.sub) || [];
+      userSockets.push(client);
+      this.connectedSockets.set(payload.sub, userSockets);
+
       this.logger.log(`Client connected: ${client.id} (User: ${payload.sub})`);
     } catch {
       client.disconnect();
@@ -69,7 +75,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: Socket) {
+    const userId = client.data.userId;
+    if (userId) {
+      const userSockets = this.connectedSockets.get(userId) || [];
+      const updatedSockets = userSockets.filter((s) => s.id !== client.id);
+      if (updatedSockets.length > 0) {
+        this.connectedSockets.set(userId, updatedSockets);
+      } else {
+        this.connectedSockets.delete(userId);
+      }
+    }
     this.logger.log(`Client disconnected: ${client.id}`);
+  }
+
+  /**
+   * Sends an event to all connected sockets of a specific user.
+   */
+  emitToUser(userId: string, event: string, payload: any) {
+    const sockets = this.connectedSockets.get(userId);
+    if (sockets) {
+      sockets.forEach(s => s.emit(event, payload));
+    }
   }
 
   @UsePipes(new ValidationPipe({ transform: true }))
