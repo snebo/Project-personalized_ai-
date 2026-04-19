@@ -13,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConversationsService } from '../conversations/conversations.service';
 import { LlmService } from '../llm/llm.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
+import { PipelineService } from '../pipeline/pipeline.service';
 import { IsString, IsNotEmpty, IsUUID, IsObject, IsOptional } from 'class-validator';
 
 class ChatSendDto {
@@ -49,6 +50,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly conversationsService: ConversationsService,
     private readonly llmService: LlmService,
     private readonly retrievalService: RetrievalService,
+    private readonly pipelineService: PipelineService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -80,7 +82,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       // 1. Save user message
-      await this.conversationsService.addMessage(
+      const userMsg = await this.conversationsService.addMessage(
         dto.conversationId,
         userId,
         'user',
@@ -88,16 +90,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         { requestId: dto.requestId },
       );
 
+      // 2. Trigger Pipeline asynchronously
+      this.pipelineService
+        .processMessage(userId, dto.conversationId, dto.content, userMsg.id)
+        .catch((err) => this.logger.error(`Async pipeline trigger failed: ${err.message}`));
+
       client.emit('chat:ack', { requestId: dto.requestId, status: 'processing' });
 
-      // 2. Perform Retrieval
+      // 3. Perform Retrieval
       const retrievalResult = await this.retrievalService.getContext(
         userId,
         dto.conversationId,
         dto.content,
       );
 
-      // 3. Start AI Streaming with Context
+      // 4. Start AI Streaming with Context
       let fullResponse = '';
       
       this.llmService.streamChat(dto.content, retrievalResult.context.combined).subscribe({
@@ -111,7 +118,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         complete: async () => {
           const cleanResponse = fullResponse.trim().replace(/\\n/g, '\n').replace(/\\"/g, '"');
 
-          // 4. Save assistant response
+          // 5. Save assistant response
           const assistantMsg = await this.conversationsService.addMessage(
             dto.conversationId,
             userId,
@@ -123,7 +130,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             },
           );
 
-          // 5. Emit completion
+          // 6. Emit completion
           client.emit('chat:complete', {
             requestId: dto.requestId,
             messageId: assistantMsg.id,

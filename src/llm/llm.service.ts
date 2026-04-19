@@ -6,7 +6,7 @@ import { Observable } from 'rxjs';
 
 @Injectable()
 export class LlmService implements OnModuleInit {
-  private model!: ChatGoogle;
+  public model!: ChatGoogle;
   private chatPrompt!: ChatPromptTemplate;
 
   constructor(private readonly configService: ConfigService) {}
@@ -18,7 +18,7 @@ export class LlmService implements OnModuleInit {
       maxOutputTokens: 2048,
     });
 
-    // Enhanced prompt with retrieval context sections
+    // Define the prompt template with system and user messages
     this.chatPrompt = ChatPromptTemplate.fromMessages([
       [
         'system',
@@ -37,17 +37,14 @@ export class LlmService implements OnModuleInit {
   }
 
   /**
-   * Streams the chat response from Gemini using LangChain and Retrieval Context.
+   * Streams the chat response from Gemini using LangChain and Prompt Templates.
    */
   streamChat(input: string, retrieval_context: string): Observable<string> {
     return new Observable<string>((subscriber) => {
       (async () => {
         try {
           const chain = this.chatPrompt.pipe(this.model);
-          const stream = await chain.stream({ 
-            input, 
-            retrieval_context 
-          });
+          const stream = await chain.stream({ input, retrieval_context });
 
           for await (const chunk of stream) {
             const content = chunk.content as string;
@@ -64,7 +61,7 @@ export class LlmService implements OnModuleInit {
   }
 
   /**
-   * Generates a single completion from Gemini using Retrieval Context.
+   * Generates a single completion from Gemini using Prompt Templates.
    */
   async generateCompletion(input: string, retrieval_context: string): Promise<string> {
     const chain = this.chatPrompt.pipe(this.model);

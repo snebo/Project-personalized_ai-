@@ -11,6 +11,9 @@ export class MessageEmbedding {
   id!: string;
 
   @Column({ type: 'uuid', nullable: true })
+  conversation_id!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
   message_id!: string | null;
 
   @Column({ type: 'uuid', nullable: true })

@@ -89,6 +89,9 @@ importers:
       typeorm:
         specifier: ^0.3.28
         version: 0.3.28(pg@8.20.0)(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@22.19.17)(typescript@6.0.3))
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.2.0
