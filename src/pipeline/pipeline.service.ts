@@ -9,6 +9,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { EmbeddingsService } from '../embeddings/embeddings.service';
 import { PipelineState, ExtractedData } from './pipeline.types';
 import { MemoryCategory } from '../memories/dto/create-memory.dto';
+import { performance } from 'perf_hooks';
 
 @Injectable()
 export class PipelineService implements OnModuleInit {
@@ -53,13 +54,14 @@ export class PipelineService implements OnModuleInit {
    * Node: Extract structured data from text
    */
   private async extractNode(state: PipelineState) {
-    this.logger.log(`Extracting data for user ${state.user_id}`);
+    const start = performance.now();
+    this.logger.debug(`Starting extraction for user ${state.user_id}`);
     
     const extractionSchema = z.object({
       people: z.array(z.object({
-        name: z.string(),
+        name: z.string().min(1).max(100),
         relationship: z.string().optional(),
-        facts: z.array(z.string()),
+        facts: z.array(z.string()).default([]),
       })).default([]),
       emotional_tone: z.array(z.string()).default([]),
       topics_discussed: z.array(z.string()).default([]),
@@ -77,9 +79,13 @@ export class PipelineService implements OnModuleInit {
       
       const extracted = await chain.invoke({ input: state.text }) as ExtractedData;
       
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.debug(`Extraction node completed in ${duration}ms`);
+      
       return { extracted };
     } catch (error: any) {
-      this.logger.error(`Extraction node failed: ${error.message}`);
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.error(`Extraction node failed after ${duration}ms: ${error.message}`);
       return { 
         extracted: null, 
         errors: [`Extraction failed: ${error.message}`] 
@@ -93,7 +99,8 @@ export class PipelineService implements OnModuleInit {
   private async storeNode(state: PipelineState) {
     if (!state.extracted) return {};
 
-    this.logger.log(`Storing data for user ${state.user_id}`);
+    const start = performance.now();
+    this.logger.debug(`Starting storage node for user ${state.user_id}`);
     const { extracted, user_id, conversation_id, text, message_id } = state;
 
     try {
@@ -124,38 +131,51 @@ export class PipelineService implements OnModuleInit {
       ];
 
       for (const mem of memoriesToStore) {
-        const embedding = await this.embeddingsService.embedQuery(mem.content);
-        
-        const embRow = await this.conversationsService.insertEmbedding({
-          user_id,
-          conversation_id,
-          content: mem.content,
-          source: 'memory',
-          embedding: `[${embedding.join(',')}]`,
-        });
+        try {
+          const embedding = await this.embeddingsService.embedQuery(mem.content);
+          
+          const embRow = await this.conversationsService.insertEmbedding({
+            user_id,
+            conversation_id,
+            content: mem.content,
+            source: 'memory',
+            embedding: `[${embedding.join(',')}]`,
+            metadata: { category: mem.category },
+          });
 
-        await this.memoriesService.createMemoryEntry({
-          user_id,
-          content: mem.content,
-          category: mem.category,
-          embedding_id: embRow.id,
-        });
+          await this.memoriesService.createMemoryEntry({
+            user_id,
+            content: mem.content,
+            category: mem.category,
+            embedding_id: embRow.id,
+          });
+        } catch (e: any) {
+          this.logger.warn(`Failed to store memory embedding: ${e.message}`);
+        }
       }
 
       // 3. Embed the original message
-      const messageEmbedding = await this.embeddingsService.embedQuery(text);
-      await this.conversationsService.insertEmbedding({
-        user_id,
-        conversation_id,
-        message_id,
-        content: text,
-        source: 'message',
-        embedding: `[${messageEmbedding.join(',')}]`,
-      });
+      try {
+        const messageEmbedding = await this.embeddingsService.embedQuery(text);
+        await this.conversationsService.insertEmbedding({
+          user_id,
+          conversation_id,
+          message_id,
+          content: text,
+          source: 'message',
+          embedding: `[${messageEmbedding.join(',')}]`,
+          metadata: { requestId: (state as any).requestId },
+        });
+      } catch (e: any) {
+        this.logger.warn(`Failed to store message embedding: ${e.message}`);
+      }
 
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.debug(`Storage node completed in ${duration}ms`);
       return {};
     } catch (error: any) {
-      this.logger.error(`Store node failed: ${error.message}`);
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.error(`Store node failed after ${duration}ms: ${error.message}`);
       return { errors: [`Store failed: ${error.message}`] };
     }
   }
@@ -164,6 +184,7 @@ export class PipelineService implements OnModuleInit {
    * Public entry point for message processing
    */
   async processMessage(user_id: string, conversation_id: string, content: string, message_id?: string) {
+    const start = performance.now();
     try {
       this.logger.log(`Starting graph execution for user ${user_id}`);
       
@@ -176,9 +197,11 @@ export class PipelineService implements OnModuleInit {
         errors: [],
       });
       
-      this.logger.log(`Graph execution completed for user ${user_id}`);
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.log(`Graph execution completed in ${duration}ms for user ${user_id}`);
     } catch (error: any) {
-      this.logger.error(`Graph execution failed: ${error.message}`);
+      const duration = (performance.now() - start).toFixed(2);
+      this.logger.error(`Graph execution failed after ${duration}ms for user ${user_id}: ${error.message}`);
     }
   }
 }

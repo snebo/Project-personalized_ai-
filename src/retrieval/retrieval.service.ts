@@ -6,6 +6,7 @@ import { EmbeddingsService } from '../embeddings/embeddings.service';
 import { PeopleService } from '../people/people.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { Person } from '../people/entities/person.entity';
+import { performance } from 'perf_hooks';
 
 type RetrievalSourceType =
   | 'message'
@@ -44,6 +45,11 @@ export interface RetrievalContextResult {
     people_result_count: number;
     context_char_count: number;
     max_context_chars: number;
+    durations: {
+      embedding?: number;
+      vector_search?: number;
+      total: number;
+    };
   };
 }
 
@@ -57,6 +63,7 @@ export class RetrievalService {
   private static readonly MAX_SEMANTIC_ITEM_CHARS = 400;
   private static readonly MAX_FACT_CHARS = 200;
   private static readonly MAX_PEOPLE = 5;
+  private static readonly SEARCH_TIMEOUT_MS = 5000;
 
   constructor(
     @InjectRepository(MessageEmbedding)
@@ -67,8 +74,7 @@ export class RetrievalService {
   ) {}
 
   /**
-   * Top-k vector search scoped by user_id, optionally filtered by source type.
-   * Returns structured results including metadata and source_type.
+   * Top-k vector search scoped by user_id.
    */
   async vectorSearch(
     user_id: string,
@@ -76,71 +82,86 @@ export class RetrievalService {
     limit: number = RetrievalService.TOP_K,
     source?: string,
   ): Promise<SemanticSearchResult[]> {
+    const start = performance.now();
     const embeddingString = `[${query_embedding.join(',')}]`;
 
-    let query = this.embeddingRepository
-      .createQueryBuilder('embedding')
-      .select([
-        'embedding.id AS id',
-        'embedding.content AS content',
-        'embedding.source AS source_type',
-        'embedding.metadata AS metadata',
-        'embedding.created_at AS created_at',
-        'embedding.embedding <=> :embedding AS score',
-      ])
-      .where('embedding.user_id = :user_id', { user_id })
-      .orderBy('score', 'ASC')
-      .setParameter('embedding', embeddingString)
-      .limit(limit);
+    try {
+      let query = this.embeddingRepository
+        .createQueryBuilder('embedding')
+        .select([
+          'embedding.id AS id',
+          'embedding.content AS content',
+          'embedding.source AS source_type',
+          'embedding.metadata AS metadata',
+          'embedding.created_at AS created_at',
+          'embedding.embedding <=> :embedding AS score',
+        ])
+        .where('embedding.user_id = :user_id', { user_id })
+        .orderBy('score', 'ASC')
+        .setParameter('embedding', embeddingString)
+        .limit(limit);
 
-    if (source) {
-      query = query.andWhere('embedding.source = :source', { source });
+      if (source) {
+        query = query.andWhere('embedding.source = :source', { source });
+      }
+
+      // Timeout protection for the DB query
+      const rows = await this.withTimeout(
+        query.getRawMany(),
+        RetrievalService.SEARCH_TIMEOUT_MS,
+        'Vector search timed out'
+      );
+
+      const duration = performance.now() - start;
+      this.logger.debug(`Vector search completed in ${duration.toFixed(2)}ms. Found ${rows.length} results.`);
+
+      return rows.map((row) => ({
+        id: row.id ?? null,
+        content: row.content ?? '',
+        source_type: row.source_type ?? 'message',
+        metadata: this.toMetadataObject(row.metadata),
+        created_at: row.created_at ?? null,
+        score: row.score !== null ? Number(row.score) : null,
+      }));
+    } catch (error: any) {
+      this.logger.error(`Vector search failed: ${error.message}`);
+      throw error;
     }
-
-    const rows = await query.getRawMany();
-
-    return rows.map((row) => ({
-      id: row.id ?? null,
-      content: row.content ?? '',
-      source_type: row.source_type ?? 'message',
-      metadata: this.toMetadataObject(row.metadata),
-      created_at: row.created_at ?? null,
-      score:
-        row.score !== undefined && row.score !== null
-          ? Number(row.score)
-          : null,
-    }));
   }
 
   /**
    * Fetches retrieval context for a message.
-   * Tries semantic search first, then falls back to recent conversation history if embeddings fail.
    */
   async getContext(
     user_id: string,
     conversation_id: string,
     text: string,
   ): Promise<RetrievalContextResult> {
+    const totalStart = performance.now();
     let semanticResults: SemanticSearchResult[] = [];
     let isFallback = false;
     let fallbackReason: string | null = null;
+    let embeddingDuration = 0;
+    let searchDuration = 0;
 
     try {
+      const embStart = performance.now();
       const embedding = await this.embeddingsService.embedQuery(text);
+      embeddingDuration = performance.now() - embStart;
+
+      const searchStart = performance.now();
       semanticResults = await this.vectorSearch(
         user_id,
         embedding,
         RetrievalService.TOP_K,
       );
+      searchDuration = performance.now() - searchStart;
     } catch (error: any) {
       isFallback = true;
-      fallbackReason = error?.message || 'Embedding service failure';
-      this.logger.warn(
-        `Semantic retrieval skipped due to embedding failure. Falling back to recent conversation messages. Error: ${fallbackReason}`,
-      );
+      fallbackReason = error?.message || 'Retrieval failure';
+      this.logger.warn(`Semantic retrieval fallback triggered: ${fallbackReason}`);
 
-      const messages =
-        await this.conversationsService.listMessages(conversation_id);
+      const messages = await this.conversationsService.listMessages(conversation_id);
       semanticResults = messages
         .slice(-RetrievalService.FALLBACK_MESSAGE_COUNT)
         .map((m: any, index: number) => ({
@@ -158,6 +179,8 @@ export class RetrievalService {
     const semanticSnippets = this.formatSemanticContext(semanticResults);
     const peopleFacts = this.formatPeopleContext(mentionedPeople);
     const combined = this.buildCombinedContext(semanticSnippets, peopleFacts);
+
+    const totalDuration = performance.now() - totalStart;
 
     return {
       semantic_results: semanticResults,
@@ -179,145 +202,83 @@ export class RetrievalService {
         people_result_count: mentionedPeople.length,
         context_char_count: combined.length,
         max_context_chars: RetrievalService.MAX_CONTEXT_CHARS,
+        durations: {
+          embedding: Number(embeddingDuration.toFixed(2)),
+          vector_search: Number(searchDuration.toFixed(2)),
+          total: Number(totalDuration.toFixed(2)),
+        },
       },
     };
   }
 
-  /**
-   * DB-level person lookup.
-   */
-  private async detectMentionedPeople(
-    user_id: string,
-    text: string,
-  ): Promise<Person[]> {
-    const people = await this.peopleService.findMentionedPeople(user_id, text);
-    return people.slice(0, RetrievalService.MAX_PEOPLE);
+  private async detectMentionedPeople(user_id: string, text: string): Promise<Person[]> {
+    try {
+      const people = await this.peopleService.findMentionedPeople(user_id, text);
+      return people.slice(0, RetrievalService.MAX_PEOPLE);
+    } catch (error: any) {
+      this.logger.error(`Person lookup failed: ${error.message}`);
+      return [];
+    }
   }
 
   private formatSemanticContext(results: SemanticSearchResult[]): string {
     if (results.length === 0) return 'No relevant history found.';
-
     return results
       .map((result, index) => {
-        const content = this.truncate(
-          result.content,
-          RetrievalService.MAX_SEMANTIC_ITEM_CHARS,
-        );
-        const metadataSummary = this.formatMetadata(result.metadata);
-
-        return [
-          `#${index + 1}`,
-          `Source Type: ${result.source_type}`,
-          result.score !== null && result.score !== undefined
-            ? `Score: ${result.score.toFixed(4)}`
-            : null,
-          metadataSummary ? `Metadata: ${metadataSummary}` : null,
-          `Content: ${content}`,
-        ]
-          .filter(Boolean)
-          .join('\n');
+        const content = this.truncate(result.content, RetrievalService.MAX_SEMANTIC_ITEM_CHARS);
+        return `[Snippet #${index + 1} | Source: ${result.source_type}] ${content}`;
       })
-      .join('\n---\n');
+      .join('\n');
   }
 
   private formatPeopleContext(people: Person[]): string {
     if (people.length === 0) return 'No mentioned people found in records.';
-
     return people
       .map((p) => {
         const facts = this.normalizeFacts(p.facts)
-          .slice(0, 10)
-          .map((fact) => this.truncate(fact, RetrievalService.MAX_FACT_CHARS));
-
-        return [
-          `Name: ${p.name}`,
-          `Relationship: ${p.relationship || 'Unknown'}`,
-          `Facts: ${facts.length > 0 ? facts.join('; ') : 'No specific facts known.'}`,
-        ].join('\n');
+          .slice(0, 5)
+          .map((f) => this.truncate(f, RetrievalService.MAX_FACT_CHARS))
+          .join('; ');
+        return `- ${p.name} (${p.relationship || 'Unknown'}): ${facts || 'No specific facts known.'}`;
       })
-      .join('\n---\n');
+      .join('\n');
   }
 
-  private buildCombinedContext(
-    semanticSnippets: string,
-    peopleFacts: string,
-  ): string {
-    const parts = [
-      'RETRIEVED MEMORY',
-      semanticSnippets,
-      '',
-      'MATCHED PEOPLE',
-      peopleFacts,
-    ];
-
-    const combined = parts.join('\n');
+  private buildCombinedContext(semanticSnippets: string, peopleFacts: string): string {
+    const combined = `RELEVANT MEMORIES:\n${semanticSnippets}\n\nKNOWN PEOPLE FACTS:\n${peopleFacts}`;
     return this.truncate(combined, RetrievalService.MAX_CONTEXT_CHARS);
   }
 
-  private formatMetadata(metadata: Record<string, any>): string {
-    if (!metadata || Object.keys(metadata).length === 0) {
-      return '';
-    }
-
-    const compact = Object.entries(metadata)
-      .slice(0, 6)
-      .map(([key, value]) => `${key}=${this.stringifyMetadataValue(value)}`)
-      .join(', ');
-
-    return this.truncate(compact, 300);
-  }
-
-  private stringifyMetadataValue(value: unknown): string {
-    if (value === null || value === undefined) return 'null';
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number' || typeof value === 'boolean')
-      return String(value);
-
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return '[unserializable]';
-    }
-  }
-
-  private normalizeFacts(facts: unknown): string[] {
-    if (Array.isArray(facts)) {
-      return facts
-        .map((fact) => (typeof fact === 'string' ? fact.trim() : String(fact)))
-        .filter(Boolean);
-    }
-
-    if (typeof facts === 'string' && facts.trim()) {
-      return [facts.trim()];
-    }
-
-    return [];
+  private async withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timeoutId: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
   }
 
   private toMetadataObject(value: unknown): Record<string, any> {
     if (!value) return {};
-
-    if (typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, any>;
-    }
-
+    if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return parsed;
-        }
-      } catch {
-        return { raw: value };
-      }
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch { return { raw: value }; }
     }
-
     return {};
   }
 
+  private normalizeFacts(facts: unknown): string[] {
+    if (Array.isArray(facts)) return facts.map(f => String(f)).filter(Boolean);
+    if (typeof facts === 'string') return [facts];
+    return [];
+  }
+
   private truncate(value: string, maxChars: number): string {
-    if (!value) return '';
-    if (value.length <= maxChars) return value;
-    return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
+    if (!value || value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars - 3)}...`;
   }
 }
