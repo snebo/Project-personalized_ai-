@@ -1,37 +1,65 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as path from 'path';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddings/huggingface_transformers';
 
+/**
+ * EmbeddingsService
+ * 
+ * Model: Xenova/all-MiniLM-L6-v2
+ * Dimensions: 384
+ * 
+ * This service provides vector embedding generation using LangChain's HuggingFaceTransformersEmbeddings wrapper.
+ */
 @Injectable()
 export class EmbeddingsService implements OnModuleInit {
-  constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
-  private logger = new Logger(EmbeddingsService.name);
-  private pipe: any = null;
+  private readonly logger = new Logger(EmbeddingsService.name);
+  private model!: HuggingFaceTransformersEmbeddings;
 
   async onModuleInit() {
-    const { pipeline, env } = await (eval(
-      `import('@huggingface/transformers')`,
-    ) as Promise<any>);
-
-    // Point to local models folder, disable remote fetching in dev
-    if (this.config.get<string>('NODE_ENV') === 'development') {
-      env.localModelPath = path.join(process.cwd(), 'hf_models/models');
-      env.allowRemoteModels = false;
-    }
-
-    this.pipe = await pipeline('feature-extraction', 'gte-small'); // just the folder name
+    this.model = new HuggingFaceTransformersEmbeddings({
+      model: 'Xenova/all-MiniLM-L6-v2',
+    });
+    this.logger.log('Embeddings model initialized (Xenova/all-MiniLM-L6-v2, 384 dimensions)');
   }
 
-  async generate(text: string): Promise<number[]> {
-    if (!this.pipe) {
-      await this.onModuleInit();
+  /**
+   * Embeds a single string into a vector.
+   * @param text The input text to embed.
+   * @returns A Promise resolving to a number array (vector).
+   */
+  async embedQuery(text: string): Promise<number[]> {
+    try {
+      if (!text || text.trim().length === 0) {
+        throw new Error('Input text cannot be empty');
+      }
+      return await this.model.embedQuery(text);
+    } catch (error: any) {
+      this.logger.error(`Failed to embed query: ${error.message}`);
+      throw error;
     }
+  }
 
-    const output = await this.pipe(text, {
-      pooling: 'mean',
-      normalize: true,
-    });
+  /**
+   * Embeds multiple strings into a list of vectors.
+   * @param texts The array of input texts to embed.
+   * @returns A Promise resolving to an array of number arrays (vectors).
+   */
+  async embedDocuments(texts: string[]): Promise<number[][]> {
+    try {
+      if (!texts || texts.length === 0) {
+        return [];
+      }
+      return await this.model.embedDocuments(texts);
+    } catch (error: any) {
+      this.logger.error(`Failed to embed documents: ${error.message}`);
+      throw error;
+    }
+  }
 
-    return Array.from(output.data) as number[];
+  /**
+   * Legacy method for backward compatibility. 
+   * @deprecated Use embedQuery instead.
+   */
+  async generate(text: string): Promise<number[]> {
+    return this.embedQuery(text);
   }
 }
