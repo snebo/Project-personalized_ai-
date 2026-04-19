@@ -2,16 +2,19 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RetrievalService } from './retrieval.service';
 import { MessageEmbedding } from '../conversations/entities/message-embedding.entity';
+import { EmbeddingsModule } from '../embeddings/embeddings.module';
+import { PeopleModule } from '../people/people.module';
+import { ConversationsModule } from '../conversations/conversations.module';
+import { RetrievalController } from './retrieval.controller';
 
-/**
- * RetrievalModule
- * This module is responsible for:
- * 1. Semantic search across all vectorized content (messages, documents, memories).
- * 2. Multi-source context gathering for the LLM.
- * 3. Performing vector similarity calculations in the database.
- */
 @Module({
-  imports: [TypeOrmModule.forFeature([MessageEmbedding])],
+  imports: [
+    TypeOrmModule.forFeature([MessageEmbedding]),
+    EmbeddingsModule,
+    PeopleModule,
+    ConversationsModule,
+  ],
+  controllers: [RetrievalController],
   providers: [RetrievalService],
   exports: [RetrievalService],
 })
