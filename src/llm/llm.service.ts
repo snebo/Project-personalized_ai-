@@ -18,29 +18,36 @@ export class LlmService implements OnModuleInit {
       maxOutputTokens: 2048,
     });
 
-    // Define the prompt template with system and user messages
+    // Enhanced prompt with retrieval context sections
     this.chatPrompt = ChatPromptTemplate.fromMessages([
       [
         'system',
-        'You are a helpful and empathetic diary assistant. ' +
-        'Your goal is to help the user reflect on their day, manage their memories, and track relationships with people they mention. ' +
-        'Keep your responses conversational, supportive, and concise.',
+        'You are a helpful and empathetic diary assistant.\n\n' +
+        'GUIDELINES:\n' +
+        '1. Use the provided context (RELEVANT MEMORIES and KNOWN PEOPLE FACTS) to personalize your response.\n' +
+        '2. Reference earlier facts when appropriate to show you remember the user.\n' +
+        '3. STATED TRUTH: Only state facts provided in the context. If you are asked about something not in the context or conversation history, honestly admit that you do not know or do not have that information yet.\n' +
+        '4. AVOID FABRICATION: Do not make up facts about people or past events.\n' +
+        '5. Keep your responses conversational, supportive, and concise.\n\n' +
+        '--- CONTEXT ---\n' +
+        '{retrieval_context}',
       ],
       ['user', '{input}'],
     ]);
   }
 
   /**
-   * Streams the chat response from Gemini using LangChain and Prompt Templates.
+   * Streams the chat response from Gemini using LangChain and Retrieval Context.
    */
-  streamChat(input: string): Observable<string> {
+  streamChat(input: string, retrieval_context: string): Observable<string> {
     return new Observable<string>((subscriber) => {
       (async () => {
         try {
-          // Create a chain: Prompt -> Model
           const chain = this.chatPrompt.pipe(this.model);
-          
-          const stream = await chain.stream({ input });
+          const stream = await chain.stream({ 
+            input, 
+            retrieval_context 
+          });
 
           for await (const chunk of stream) {
             const content = chunk.content as string;
@@ -57,11 +64,11 @@ export class LlmService implements OnModuleInit {
   }
 
   /**
-   * Generates a single completion from Gemini using Prompt Templates.
+   * Generates a single completion from Gemini using Retrieval Context.
    */
-  async generateCompletion(input: string): Promise<string> {
+  async generateCompletion(input: string, retrieval_context: string): Promise<string> {
     const chain = this.chatPrompt.pipe(this.model);
-    const response = await chain.invoke({ input });
+    const response = await chain.invoke({ input, retrieval_context });
     return response.content as string;
   }
 }

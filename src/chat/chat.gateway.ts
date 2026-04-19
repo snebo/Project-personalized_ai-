@@ -12,6 +12,7 @@ import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConversationsService } from '../conversations/conversations.service';
 import { LlmService } from '../llm/llm.service';
+import { RetrievalService } from '../retrieval/retrieval.service';
 import { IsString, IsNotEmpty, IsUUID, IsObject, IsOptional } from 'class-validator';
 
 class ChatSendDto {
@@ -42,12 +43,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
-  private connectedSockets: Map<string, Socket[]> = new Map();
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly conversationsService: ConversationsService,
     private readonly llmService: LlmService,
+    private readonly retrievalService: RetrievalService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -87,12 +88,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         { requestId: dto.requestId },
       );
 
-      client.emit('chat:ack', { requestId: dto.requestId, status: 'received' });
+      client.emit('chat:ack', { requestId: dto.requestId, status: 'processing' });
 
-      // 2. Start AI Streaming
+      // 2. Perform Retrieval
+      const retrievalResult = await this.retrievalService.getContext(
+        userId,
+        dto.conversationId,
+        dto.content,
+      );
+
+      // 3. Start AI Streaming with Context
       let fullResponse = '';
       
-      this.llmService.streamChat(dto.content).subscribe({
+      this.llmService.streamChat(dto.content, retrievalResult.context.combined).subscribe({
         next: (chunk) => {
           fullResponse += chunk;
           client.emit('chat:chunk', {
@@ -101,19 +109,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           });
         },
         complete: async () => {
-          // Clean the full response content
           const cleanResponse = fullResponse.trim().replace(/\\n/g, '\n').replace(/\\"/g, '"');
 
-          // 3. Save assistant response
+          // 4. Save assistant response
           const assistantMsg = await this.conversationsService.addMessage(
             dto.conversationId,
             userId,
             'assistant',
             cleanResponse,
-            { requestId: dto.requestId },
+            { 
+              requestId: dto.requestId,
+              retrieval_meta: retrievalResult.meta 
+            },
           );
 
-          // 4. Emit completion
+          // 5. Emit completion
           client.emit('chat:complete', {
             requestId: dto.requestId,
             messageId: assistantMsg.id,
