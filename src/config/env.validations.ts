@@ -33,6 +33,12 @@ class EnvVars {
 
   @IsString()
   SUPABASE_PUBLIC_KEY!: string;
+
+  @IsString()
+  GOOGLE_API_KEY!: string;
+
+  @IsString()
+  GOOGLE_MODEL_NAME!: string;
 }
 export function validate(config: Record<string, unknown>) {
   const validated = plainToInstance(EnvVars, config, {

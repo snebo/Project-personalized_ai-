@@ -16,6 +16,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
 import { LlmModule } from './llm/llm.module';
 import { PipelineModule } from './pipeline/pipeline.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { PipelineModule } from './pipeline/pipeline.module';
     RetrievalModule,
     LlmModule,
     PipelineModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
