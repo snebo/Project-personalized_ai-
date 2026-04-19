@@ -101,12 +101,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           });
         },
         complete: async () => {
+          // Clean the full response content
+          const cleanResponse = fullResponse.trim().replace(/\\n/g, '\n').replace(/\\"/g, '"');
+
           // 3. Save assistant response
           const assistantMsg = await this.conversationsService.addMessage(
             dto.conversationId,
             userId,
             'assistant',
-            fullResponse.trim(),
+            cleanResponse,
             { requestId: dto.requestId },
           );
 
@@ -114,7 +117,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           client.emit('chat:complete', {
             requestId: dto.requestId,
             messageId: assistantMsg.id,
-            content: fullResponse.trim(),
+            content: cleanResponse,
           });
 
           this.logger.log(`AI Response complete for request ${dto.requestId}`);
