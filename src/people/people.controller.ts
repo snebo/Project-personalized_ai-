@@ -33,6 +33,11 @@ export class PeopleController {
     return this.peopleService.findById(id, req.user.sub);
   }
 
+  @Get('')
+  findAllPepoleMentioned(@Request() req: any) {
+    return this.peopleService.findAllForUser(req.user.sub);
+  }
+
   @Patch(':id')
   update(
     @Param('id') id: string,

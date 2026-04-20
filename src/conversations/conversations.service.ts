@@ -16,7 +16,10 @@ export class ConversationsService {
     private readonly embeddingRepo: Repository<MessageEmbedding>,
   ) {}
 
-  async createConversation(user_id: string, title?: string): Promise<Conversation> {
+  async createConversation(
+    user_id: string,
+    title?: string,
+  ): Promise<Conversation> {
     const conversation = this.conversationRepo.create({
       user_id,
       title,
@@ -30,6 +33,10 @@ export class ConversationsService {
       where: { id },
       relations: ['messages'],
     });
+  }
+
+  async getAllConversations(user_id: string): Promise<Conversation[] | null> {
+    return this.conversationRepo.find({ where: { user_id } });
   }
 
   async addMessage(
@@ -56,7 +63,9 @@ export class ConversationsService {
     });
   }
 
-  async insertEmbedding(data: Partial<MessageEmbedding>): Promise<MessageEmbedding> {
+  async insertEmbedding(
+    data: Partial<MessageEmbedding>,
+  ): Promise<MessageEmbedding> {
     const embedding = this.embeddingRepo.create(data);
     return this.embeddingRepo.save(embedding);
   }

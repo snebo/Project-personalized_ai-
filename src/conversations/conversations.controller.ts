@@ -9,7 +9,10 @@ import {
 } from '@nestjs/common';
 import { ConversationsService } from './conversations.service';
 import { AuthGuard } from '../auth/auth.guard';
-import { CreateConversationDto, CreateMessageDto } from './dto/create-conversation.dto';
+import {
+  CreateConversationDto,
+  CreateMessageDto,
+} from './dto/create-conversation.dto';
 
 @Controller('conversations')
 @UseGuards(AuthGuard)
@@ -18,7 +21,10 @@ export class ConversationsController {
 
   @Post()
   create(@Request() req: any, @Body() dto: CreateConversationDto) {
-    return this.conversationsService.createConversation(req.user.sub, dto.title);
+    return this.conversationsService.createConversation(
+      req.user.sub,
+      dto.title,
+    );
   }
 
   @Get(':id')
@@ -44,5 +50,10 @@ export class ConversationsController {
   @Get(':id/messages')
   listMessages(@Param('id') id: string) {
     return this.conversationsService.listMessages(id);
+  }
+
+  @Get('/')
+  listAllconversations(@Request() req: any) {
+    return this.conversationsService.getAllConversations(req.user.sub);
   }
 }
