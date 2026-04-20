@@ -39,6 +39,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${DB_USERNAME:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-postgres}
       - HUGGING_FACE_MODEL_DIR=/app/hf_models/models/gte-small
+    user: "1000:1000"
     volumes:
       - .:/app
       - /app/node_modules

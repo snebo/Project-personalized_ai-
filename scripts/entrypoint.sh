@@ -17,9 +17,11 @@ until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
   sleep 2
 done
 
-echo "Database is up - executing migrations (if any)..."
-# If you have migrations, run them here. For example:
-# pnpm run migration:run
+echo "Database is up - executing migrations from supabase/migrations..."
+for f in /app/supabase/migrations/*.sql; do
+  echo "Applying migration: $f"
+  psql "$DATABASE_URL" -f "$f"
+done
 
 echo "Running tests..."
 pnpm test
