@@ -9,10 +9,13 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "src/*": ["./src/*"]
     },
-    "types": ["node", "multer"],
+    "types": ["node", "multer", "jest"],
     "skipLibCheck": true,
     "strict": true,
     "strictNullChecks": true,
