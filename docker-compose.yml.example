@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Database Service (PostgreSQL with pgvector)
+  db:
+    image: ankane/pgvector:latest # Image with pgvector extension pre-installed
+    container_name: my_diary_friend_db
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USERNAME:-postgres} # User from .env or default 'postgres'
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres} # Password from .env or default 'postgres'
+      - POSTGRES_DB=${DB_NAME:-postgres} # Database name from .env or default 'postgres'
+    ports:
+      - "${DB_PORT:-54322}:5432" # Map external port to internal 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persist database data
+    networks:
+      - app-network
+    healthcheck:
+      # Simple check to ensure PostgreSQL is ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Application Service (NestJS)
+  app:
+    build:
+      context: .             # Build context is the current directory
+      dockerfile: Dockerfile # Path to the Dockerfile
+    container_name: my_diary_friend_app
+    restart: always
+    ports:
+      - "${PORT:-3000}:3000" # Map internal 3000 to the port specified in .env
+    depends_on:
+      db:
+        condition: service_healthy # Ensure the database is healthy before starting
+    env_file:
+      - .env # Load environment variables from your local .env file
+    environment:
+      # Construct the DATABASE_URL using variables from .env
+      - DATABASE_URL=postgresql://${DB_USERNAME:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-postgres}
+      # Path to the local model inside the container
+      - HUGGING_FACE_MODEL_DIR=/app/hf_models/models/gte-small
+    volumes:
+      - .:/app # Mount project source code into the container (for live-reload)
+      - /app/node_modules # Do not overwrite container's node_modules with host's
+      - hf_models_volume:/app/hf_models # Persist Hugging Face models
+    networks:
+      - app-network
+    # Run the application in development mode with live-reload
+    command: pnpm start:dev
+
+# Define named volumes for persistent data storage
+volumes:
+  postgres_data:
+  hf_models_volume:
+
+# Define a custom network for container communication
+networks:
+  app-network:
+    driver: bridge
